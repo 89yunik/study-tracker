@@ -1,6 +1,6 @@
 N=int(input())
 MOD=10**9
-dp = [[[0 for _ in range(1 << 10)] for _ in range(10)] for _ in range(N+1)]
+dp = [[[0 for _ in range(1<<10)] for _ in range(10)] for _ in range(N+1)]
 for digit in range(1,10): dp[1][digit][1<<digit] = 1
 for length in range(1, N):
     for digit in range(10):
