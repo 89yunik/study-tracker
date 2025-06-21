@@ -1,7 +1,6 @@
 N=int(input())
 cards=[*map(int, input().split())]
-scores = {}
-for card in cards: scores[card] = 0
+scores = {card: 0 for card in cards}
 for card in cards: 
     multiple = card*2
     while multiple <= 10**6:
