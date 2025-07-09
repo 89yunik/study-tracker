@@ -15,7 +15,7 @@
 
 ## 🗂️ 기록 방식
 
-- 날짜별 학습 내용 [Wiki](https://github.com/89yunik/study-tracker/wiki)에 작성
+- 날짜별 학습 내용 [Docs](https://github.com/89yunik/study-tracker/tree/main/docs)에 작성
 - 한 주간의 학습 내용을 요약
 - 코드, 링크, 인사이트 등을 자유롭게 포함
 
