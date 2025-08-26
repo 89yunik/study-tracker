@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>도면 심볼 주석 도구 (Konva.js)</title>
+<script src="https://unpkg.com/konva@9/konva.min.js"></script>
+<style>
+  :root { --bg:#f7f7fb; --line:#e4e4ea; --text:#222; --blue:#1976d2; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family:system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; color:var(--text); background:var(--bg); }
+  .wrap { display:flex; gap:16px; padding:16px; height:100vh; }
+  .left {
+    width:260px; min-width:220px; background:#fff; border:1px solid var(--line); border-radius:12px;
+    padding:14px; overflow:auto; box-shadow:0 2px 6px rgba(0,0,0,.04);
+  }
+  .left h3 { margin:6px 0 10px; font-size:14px; color:#c2185b; }
+  fieldset { border:1px solid var(--line); border-radius:10px; padding:10px 10px 6px; }
+  legend { font-size:12px; color:#666; padding:0 6px; }
+  .symbol { display:flex; align-items:center; gap:8px; padding:4px 0; font-size:14px; }
+  .btn {
+    width:100%; margin-top:8px; padding:10px 12px; border:1px solid var(--line); background:#fff; border-radius:10px;
+    cursor:pointer; font-weight:600;
+  }
+  .btn.primary { background:var(--blue); color:#fff; border-color:var(--blue); }
+  .btn.danger { background:#ef5350; color:#fff; border-color:#ef5350; }
+  .btn:active { transform: translateY(1px); }
+  #stageWrap {
+    flex:1; min-width:0; background:#fff; border:1px solid var(--line); border-radius:12px;
+    position:relative; display:flex; align-items:center; justify-content:center;
+  }
+  #stageCanvas { width:100%; height:100%; }
+  .topbar {
+    display:flex; gap:8px; align-items:center; margin-top:8px; flex-wrap:wrap;
+  }
+  .note { font-size:12px; color:#666; margin-top:8px; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <aside class="left">
+      <h3>검사POINT Symbol</h3>
+
+      <fieldset>
+        <legend>심볼 선택</legend>
+        <label class="symbol"><input type="radio" name="symbol" value="UTM" checked> ● UTM (두께측정)</label>
+        <label class="symbol"><input type="radio" name="symbol" value="RT"> ■ RT</label>
+        <label class="symbol"><input type="radio" name="symbol" value="PT"> ▲ PT</label>
+        <label class="symbol"><input type="radio" name="symbol" value="Replica"> ★ Replica</label>
+        <label class="symbol"><input type="radio" name="symbol" value="PAUT"> ○ PAUT</label>
+        <label class="symbol"><input type="radio" name="symbol" value="MT"> □ MT</label>
+        <label class="symbol"><input type="radio" name="symbol" value="IRIS"> ⬡ IRIS</label>
+        <label class="symbol"><input type="radio" name="symbol" value="ECT"> ◇ ECT</label>
+      </fieldset>
+
+      <button id="btnPickImage" class="btn">이미지 불러오기</button>
+      <input id="imageFile" type="file" accept="image/*" hidden>
+
+      <div class="topbar">
+        <button id="btnSavePng" class="btn primary">PNG 저장</button>
+        <button id="btnSaveJson" class="btn">JSON 저장</button>
+        <button id="btnLoadJson" class="btn">JSON 로드</button>
+        <input id="jsonFile" type="file" accept="application/json" hidden>
+        <button id="btnResetZoom" class="btn">줌 초기화</button>
+        <button id="btnClear" class="btn danger">모든 심볼 삭제</button>
+      </div>
+
+      <p class="note">팁: 빈 공간 드래그=이동, 마우스 휠=줌, 우클릭 또는 Delete=삭제</p>
+    </aside>
+
+    <main id="stageWrap">
+      <!-- Konva Stage가 여기 생성됩니다 -->
+    </main>
+  </div>
+
+<script>
+/* ================= 기본 셋업 ================= */
+const wrap = document.getElementById('stageWrap');
+const stage = new Konva.Stage({ container: 'stageWrap', width: wrap.clientWidth, height: wrap.clientHeight });
+const bgLayer = new Konva.Layer();     // 배경(도면)
+const layer   = new Konva.Layer();     // 심볼
+stage.add(bgLayer);
+stage.add(layer);
+
+let baseImgNode = null;
+let baseImageNatural = { w: 0, h: 0 };
+let fitScale = 1;                      // 처음 맞춘 스케일(줌 초기화에 사용)
+let currentType = 'UTM';
+
+/* ================= UI 핸들러 ================= */
+document.addEventListener('change', (e) => {
+  if (e.target.name === 'symbol') currentType = e.target.value;
+});
+
+document.getElementById('btnPickImage').onclick = () => document.getElementById('imageFile').click();
+document.getElementById('imageFile').onchange = (e) => {
+  const file = e.target.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => loadBaseImage(reader.result);
+  reader.readAsDataURL(file);
+};
+
+document.getElementById('btnResetZoom').onclick = () => {
+  stage.scale({ x: fitScale, y: fitScale });
+  stage.position({ x: 0, y: 0 });
+  stage.batchDraw();
+};
+
+document.getElementById('btnClear').onclick = () => {
+  layer.find('.symbol').forEach(n => n.destroy());
+  tr.nodes([]); layer.draw();
+};
+
+document.getElementById('btnSavePng').onclick = () => {
+  // 선명도 위해 pixelRatio 2 (원하면 3~4)
+  const url = stage.toDataURL({ pixelRatio: 2 });
+  downloadBlob(dataURLtoBlob(url), 'annotated.png');
+};
+
+document.getElementById('btnSaveJson').onclick = () => {
+  const payload = exportState();
+  downloadBlob(new Blob([JSON.stringify(payload, null, 2)], { type:'application/json' }), 'annotation.json');
+};
+
+document.getElementById('btnLoadJson').onclick = () => document.getElementById('jsonFile').click();
+document.getElementById('jsonFile').onchange = (e) => {
+  const file = e.target.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = async () => {
+    const obj = JSON.parse(reader.result);
+    await importState(obj);
+  };
+  reader.readAsText(file);
+};
+
+/* ================= 반응형 리사이즈 ================= */
+function resizeStageToContainer() {
+  stage.size({ width: wrap.clientWidth, height: wrap.clientHeight });
+  stage.batchDraw();
+}
+window.addEventListener('resize', resizeStageToContainer);
+
+/* ================= 이미지 로드 & 맞춤 ================= */
+async function loadBaseImage(src) {
+  // 기존 이미지 제거
+  if (baseImgNode) { baseImgNode.destroy(); baseImgNode = null; bgLayer.draw(); }
+
+  const img = await loadHTMLImage(src);
+  baseImageNatural = { w: img.width, h: img.height };
+
+  baseImgNode = new Konva.Image({ image: img, listening:false });
+  bgLayer.add(baseImgNode);
+
+  // 컨테이너에 맞게 전체 초기 스케일 설정
+  const cw = wrap.clientWidth, ch = wrap.clientHeight;
+  fitScale = Math.min(cw / img.width, ch / img.height);
+  if (!isFinite(fitScale) || fitScale <= 0) fitScale = 1;
+
+  stage.scale({ x: fitScale, y: fitScale });
+  stage.position({ x: 0, y: 0 });
+  resizeStageToContainer(); // stage 크기 보정
+  bgLayer.draw();
+}
+
+/* ================= 심볼 생성 팩토리 ================= */
+function makeSymbol(type) {
+  const common = { stroke:'#222', strokeWidth:2, draggable:true, name:'symbol', perfectDrawEnabled:false };
+  let node;
+  switch (type) {
+    case 'UTM': node = new Konva.Circle({ ...common, radius:8, fill:'#222' }); break;               // ●
+    case 'RT':  node = new Konva.Rect({ ...common, width:18, height:18 }); break;                   // ■
+    case 'PT':  node = new Konva.RegularPolygon({ ...common, sides:3, radius:12 }); break;          // ▲
+    case 'Replica': node = new Konva.Star({ ...common, numPoints:5, innerRadius:6, outerRadius:12 }); break; // ★
+    case 'PAUT': node = new Konva.Circle({ ...common, radius:12 }); break;                          // ○
+    case 'MT':  node = new Konva.Rect({ ...common, width:18, height:18, cornerRadius:3 }); break;   // □
+    case 'IRIS':node = new Konva.RegularPolygon({ ...common, sides:6, radius:12 }); break;          // ⬡
+    case 'ECT': node = new Konva.RegularPolygon({ ...common, sides:4, radius:12, rotation:45 }); break; // ◇
+    default:    node = new Konva.Circle({ ...common, radius:8, fill:'#222' });
+  }
+  node.setAttr('symbolType', type);
+  return node;
+}
+
+/* ================= 클릭으로 심볼 추가 ================= */
+stage.on('mousedown', (e) => {
+  // 빈 곳에만 찍기 (심볼 클릭 시는 선택만)
+  if (!baseImgNode) return;                            // 이미지가 먼저 필요
+  if (e.target === stage || e.target === bgLayer || e.target === layer) {
+    const pos = stage.getPointerPosition();
+    const node = makeSymbol(currentType);
+    node.position(pos);
+    layer.add(node);
+    layer.draw();
+  }
+});
+
+/* ================= 선택/리사이즈/삭제 ================= */
+const tr = new Konva.Transformer({
+  rotateEnabled:false,
+  enabledAnchors:['top-left','top-right','bottom-left','bottom-right'],
+  anchorSize:8
+});
+layer.add(tr);
+
+// 선택 토글
+stage.on('click', (e) => {
+  if (e.target.hasName('symbol')) tr.nodes([e.target]);
+  else tr.nodes([]);
+  layer.draw();
+});
+
+// 드래그 중일 때 배경 패닝 꺼주기
+stage.on('mousedown', (e) => {
+  stage.draggable(!e.target.hasName('symbol'));
+});
+
+// Delete 삭제
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Delete' && tr.nodes().length) {
+    tr.nodes()[0].destroy();
+    tr.nodes([]); layer.draw();
+  }
+});
+
+// 우클릭 즉시 삭제
+stage.on('contextmenu', (e) => {
+  e.evt.preventDefault();
+  if (e.target.hasName('symbol')) { e.target.destroy(); tr.nodes([]); layer.draw(); }
+});
+
+/* ================= 줌/패닝 ================= */
+const scaleBy = 1.06;
+stage.on('wheel', (e) => {
+  e.evt.preventDefault();
+  const oldScale = stage.scaleX();
+  const pointer = stage.getPointerPosition();
+  const direction = e.evt.deltaY > 0 ? 1/scaleBy : scaleBy;
+  const newScale = oldScale * direction;
+
+  // 스테이지 좌표를 기준으로 마우스 위치 고정
+  const mousePointTo = {
+    x: (pointer.x - stage.x()) / oldScale,
+    y: (pointer.y - stage.y()) / oldScale
+  };
+  stage.scale({ x:newScale, y:newScale });
+  stage.position({
+    x: pointer.x - mousePointTo.x * newScale,
+    y: pointer.y - mousePointTo.y * newScale
+  });
+  stage.batchDraw();
+});
+stage.draggable(true);
+
+/* ================= 상태 저장/복원 ================= */
+// (실무에서는 baseImageSrc를 이미지 ID/URL로 저장하시길 권장)
+function exportState() {
+  const items = layer.find('.symbol').map(n => ({
+    type: n.getAttr('symbolType'),
+    x: n.x(), y: n.y(),
+    scaleX: n.scaleX(), scaleY: n.scaleY(),
+    rotation: n.rotation()
+  }));
+  const baseImageSrc = baseImgNode?.image()?.src || null;
+  return { version:1, baseImageSrc, items };
+}
+
+async function importState(obj) {
+  // 배경 이미지
+  if (obj.baseImageSrc) await loadBaseImage(obj.baseImageSrc);
+
+  // 기존 심볼 제거
+  layer.find('.symbol').forEach(n => n.destroy());
+  tr.nodes([]);
+
+  // 복원
+  (obj.items||[]).forEach(it => {
+    const n = makeSymbol(it.type);
+    n.position({ x: it.x, y: it.y });
+    n.scaleX(it.scaleX ?? 1);
+    n.scaleY(it.scaleY ?? 1);
+    n.rotation(it.rotation ?? 0);
+    layer.add(n);
+  });
+  layer.draw();
+}
+
+/* ================= 유틸 ================= */
+function loadHTMLImage(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = src;
+  });
+}
+
+function dataURLtoBlob(dataUrl) {
+  const arr = dataUrl.split(','), mime = arr[0].match(/:(.*?);/)[1];
+  const bstr = atob(arr[1]); let n = bstr.length; const u8arr = new Uint8Array(n);
+  while (n--) u8arr[n] = bstr.charCodeAt(n);
+  return new Blob([u8arr], { type:mime });
+}
+
+function downloadBlob(blob, filename) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 0);
+}
+</script>
+</body>
+</html>
