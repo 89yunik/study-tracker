@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="ko">
+
+<head>
+    <meta charset="utf-8" />
+    <title>Konva 숫자 마커 예시</title>
+    <style>
+        body {
+            font-family: system-ui, sans-serif;
+            margin: 20px;
+        }
+
+        .toolbar {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        #stage {
+            width: 900px;
+            height: 560px;
+            border: 1px solid #ddd;
+        }
+
+        select,
+        input,
+        button {
+            padding: 6px 8px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="toolbar">
+        <label>도형:
+            <select id="shape">
+                <option value="circle">원</option>
+                <option value="rect">사각형</option>
+                <option value="diamond">다이아몬드</option>
+                <option value="triangle">삼각형</option>
+            </select>
+        </label>
+        <label>크기:
+            <input id="size" type="number" value="18" min="8" max="80" />
+        </label>
+        <label>색상:
+            <input id="color" type="color" value="#e11d48" />
+        </label>
+        <button id="reset">번호 초기화</button>
+        <button id="export">PNG 내보내기</button>
+    </div>
+
+    <div id="stage"></div>
+
+    <script src="https://unpkg.com/konva@9/konva.min.js"></script>
+    <script>
+        // ====== Stage & Layer ======
+        const container = document.getElementById('stage');
+        const stage = new Konva.Stage({
+            container,
+            width: container.clientWidth,
+            height: container.clientHeight,
+        });
+        const layer = new Konva.Layer();
+        stage.add(layer);
+
+        // 작업 영역 그룹(이미지 + 마커를 한 덩어리로)
+        const workArea = new Konva.Group({ name: 'workarea' });
+        layer.add(workArea);
+
+        // ====== 이미지 로드 & 스케일 ======
+        const img = new Image();
+        // 여기에 실제 이미지 경로를 넣으세요.
+        img.src = 'https://picsum.photos/1400/900';
+        img.onload = () => {
+            const kImg = new Konva.Image({ image: img });
+            // 컨테이너 가로에 맞춰 스케일 (세로는 비율 유지)
+            const scale = stage.width() / img.width;
+            kImg.scale({ x: scale, y: scale });
+            workArea.add(kImg);
+            layer.draw();
+        };
+
+        // ====== 유틸: 텍스트 중앙 정렬 ======
+        function recenterText(textNode) {
+            // 텍스트를 중앙에 오도록 오프셋 재설정
+            textNode.offsetX(textNode.width() / 2);
+            textNode.offsetY(textNode.height() / 2);
+        }
+
+        // ====== 마커 생성기 ======
+        function createNumberMarker(n, x, y, opts) {
+            const r = opts.size ?? 18;
+            const fill = opts.fill ?? '#e11d48';
+            const stroke = opts.stroke ?? '#ffffff';
+            const strokeWidth = opts.strokeWidth ?? 2;
+            const fontSize = opts.fontSize ?? Math.round(r * 0.95);
+            const shapeType = opts.shape ?? 'circle';
+
+            const g = new Konva.Group({ x, y, draggable: true, name: 'marker' });
+
+            // 투명 히트영역(드래그/선택 안정화)
+            const hitPad = 6;
+            const hit = new Konva.Rect({
+                x: -r - hitPad, y: -r - hitPad,
+                width: (r + hitPad) * 2,
+                height: (r + hitPad) * 2,
+                opacity: 0,
+                listening: true,
+                name: 'marker-hit'
+            });
+            g.add(hit);
+
+            // 실제 도형
+            let shape;
+            if (shapeType === 'circle') {
+                shape = new Konva.Circle({
+                    radius: r, fill, stroke, strokeWidth, listening: false, name: 'marker-shape'
+                });
+            } else if (shapeType === 'rect') {
+                const w = r * 2, h = r * 2;
+                shape = new Konva.Rect({
+                    width: w, height: h, offsetX: w / 2, offsetY: h / 2,
+                    cornerRadius: Math.round(r * 0.35),
+                    fill, stroke, strokeWidth, listening: false, name: 'marker-shape'
+                });
+            } else if (shapeType === 'diamond') {
+                shape = new Konva.RegularPolygon({
+                    sides: 4, radius: r, rotation: 45,
+                    fill, stroke, strokeWidth, listening: false, name: 'marker-shape'
+                });
+            } else if (shapeType === 'triangle') {
+                shape = new Konva.RegularPolygon({
+                    sides: 3, radius: r, rotation: 90,
+                    fill, stroke, strokeWidth, listening: false, name: 'marker-shape'
+                });
+            } else {
+                // 기본은 원
+                shape = new Konva.Circle({
+                    radius: r, fill, stroke, strokeWidth, listening: false, name: 'marker-shape'
+                });
+            }
+            g.add(shape);
+
+            // 숫자 텍스트 (항상 중앙)
+            const text = new Konva.Text({
+                text: String(n),
+                fontSize,
+                fontStyle: 'bold',
+                fill: '#ffffff',
+                listening: false,
+                name: 'marker-text'
+            });
+            recenterText(text);
+            g.add(text);
+
+            // 숫자 변경 API
+            g.setNumber = (val) => { text.text(String(val)); recenterText(text); layer.batchDraw(); };
+
+            // 선택감: 맨 앞으로
+            g.on('mousedown', () => g.moveToTop());
+
+            return g;
+        }
+
+        // ====== 좌표 변환 (workArea 상대) ======
+        function toWorkAreaPoint(pointer) {
+            const t = workArea.getAbsoluteTransform().copy();
+            t.invert();
+            return t.point(pointer);
+        }
+
+        // ====== UI 요소 ======
+        const $shape = document.getElementById('shape');
+        const $size = document.getElementById('size');
+        const $color = document.getElementById('color');
+        const $reset = document.getElementById('reset');
+        const $export = document.getElementById('export');
+
+        let counter = 0;
+
+        // ====== 클릭으로 마커 추가 ======
+        stage.on('click tap', (e) => {
+            // 기존 마커/히트영역/텍스트를 클릭한 경우 새로 만들지 않음
+            if (e.target.hasName('marker') || e.target.hasName('marker-hit') || e.target.hasName('marker-shape') || e.target.hasName('marker-text')) return;
+
+            const pointer = stage.getPointerPosition();
+            const p = toWorkAreaPoint(pointer);
+
+            counter += 1;
+            const marker = createNumberMarker(counter, p.x, p.y, {
+                shape: $shape.value,
+                size: parseInt($size.value, 10),
+                fill: $color.value
+            });
+
+            workArea.add(marker);
+            layer.batchDraw();
+        });
+
+        // ====== 번호 초기화 ======
+        $reset.addEventListener('click', () => {
+            counter = 0;
+            // 기존 마커들의 번호도 1부터 다시 매기고 싶다면 아래처럼:
+            const markers = workArea.find('.marker');
+            markers.each((node, idx) => node.setNumber ? node.setNumber(idx + 1) : null);
+            layer.batchDraw();
+        });
+
+        // ====== PNG 내보내기 ======
+        $export.addEventListener('click', () => {
+            const url = stage.toDataURL({ pixelRatio: 2 });
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'annotated.png';
+            a.click();
+        });
+
+        // (옵션) 캔버스 빈 곳 클릭 시 마커 선택 해제 등의 로직이 필요하면 추가하세요.
+    </script>
+</body>
+
+</html>
