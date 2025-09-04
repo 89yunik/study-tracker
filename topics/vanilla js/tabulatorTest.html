@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tabulator 중간 위치 붙여넣기</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/tabulator/5.5.0/css/tabulator.min.css" rel="stylesheet">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 20px;
+        }
+
+        .info-box {
+            background: #e3f2fd;
+            border: 1px solid #2196f3;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+
+        .info-box h3 {
+            margin-top: 0;
+            color: #1976d2;
+        }
+
+        .controls {
+            margin-bottom: 20px;
+        }
+
+        button {
+            background: #2196f3;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            margin-right: 10px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background: #1976d2;
+        }
+
+        #example-table {
+            margin-top: 20px;
+        }
+
+        .tabulator-row.tabulator-selected {
+            background-color: #e3f2fd !important;
+        }
+
+        .sample-data {
+            background: #f5f5f5;
+            padding: 10px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>Tabulator 중간 위치 붙여넣기 예제</h1>
+
+        <div class="info-box">
+            <h3>사용법:</h3>
+            <p>1. <strong>행 선택 방법:</strong></p>
+            <ul>
+                <li>첫 번째 열의 체크박스를 클릭하여 선택</li>
+                <li>또는 ID 열(편집 불가능한 열)을 클릭하여 선택</li>
+            </ul>
+            <p>2. <strong>편집 방법:</strong> 편집 가능한 셀을 더블클릭하면 편집 모드로 진입합니다</p>
+            <p>3. 아래 샘플 데이터를 복사하거나 엑셀에서 데이터를 복사합니다</p>
+            <p>4. 테이블에서 Ctrl+V를 눌러 붙여넣기를 합니다</p>
+            <p>5. 선택된 행 다음 위치에 데이터가 삽입됩니다</p>
+
+            <div class="sample-data">
+                <strong>샘플 붙여넣기 데이터 (복사해서 사용하세요):</strong><br>
+                새 직원1 28 개발팀 75000<br>
+                새 직원2 32 디자인팀 65000<br>
+                새 직원3 29 마케팅팀 55000
+            </div>
+        </div>
+
+        <div class="controls">
+            <button onclick="addSampleRow()">샘플 행 추가</button>
+            <button onclick="clearSelection()">선택 해제</button>
+            <button onclick="deleteSelected()">선택된 행 삭제</button>
+            <button onclick="resetTable()">테이블 초기화</button>
+        </div>
+
+        <div id="example-table"></div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tabulator/5.5.0/js/tabulator.min.js"></script>
+    <script>
+        // 초기 데이터
+        var tableData = [
+            { id: 1, name: "김철수", age: 35, department: "개발팀", salary: 80000 },
+            { id: 2, name: "이영희", age: 28, department: "디자인팀", salary: 65000 },
+            { id: 3, name: "박민수", age: 32, department: "마케팅팀", salary: 60000 },
+            { id: 4, name: "정수연", age: 29, department: "영업팀", salary: 55000 },
+            { id: 5, name: "강동원", age: 31, department: "개발팀", salary: 75000 },
+        ];
+
+        // Tabulator 테이블 생성
+        var table = new Tabulator("#example-table", {
+            data: tableData,
+            height: 400,
+            layout: "fitColumns",
+            selectable: 1, // 한 번에 하나의 행만 선택 가능
+            clipboard: true, // 클립보드 기능 활성화
+            clipboardPasteAction: data => {
+                const selectedRows = table.getSelectedRows();
+                if (selectedRows.length > 0) {
+                    const targetRow = selectedRows[0];
+                    let currentTargetRow = targetRow;
+                    data.forEach(async (rowData, index) => {
+                        const newRow = await table.addRow(rowData, true, currentTargetRow);
+                        currentTargetRow = newRow;
+                    });
+                    table.deselectRow();
+                }
+                else data.forEach(rowData => table.addRow(rowData));
+            },
+            columns: [
+                { title: "ID", field: "id", width: 80, sorter: "number" },
+                { title: "이름", field: "name", editor: "input" },
+                { title: "나이", field: "age", editor: "number", sorter: "number" },
+                { title: "부서", field: "department", editor: "input" },
+                {
+                    title: "급여", field: "salary", editor: "number", sorter: "number",
+                    formatter: function (cell) {
+                        return new Intl.NumberFormat('ko-KR').format(cell.getValue()) + "원";
+                    }
+                }
+            ],
+        });
+
+        // 행 선택 이벤트
+        table.on("rowClick", function (e, row) {
+            console.log("행 선택됨:", row.getData());
+        });
+
+        // 붙여넣기 완료 이벤트
+        table.on("clipboardPasted", function (clipboard, rowData, rows) {
+            console.log("붙여넣기 완료:", rowData);
+        });
+
+        // 컨트롤 함수들
+        function addSampleRow() {
+            var newRow = {
+                id: Date.now(),
+                name: "새 직원",
+                age: 25,
+                department: "신입",
+                salary: 45000
+            };
+
+            var selectedRows = table.getSelectedRows();
+            if (selectedRows.length > 0) {
+                table.addRow(newRow, true, selectedRows[0]);
+            } else {
+                table.addRow(newRow);
+            }
+        }
+
+        function clearSelection() {
+            table.deselectRow();
+            console.log("선택 해제됨");
+        }
+
+        function deleteSelected() {
+            var selectedRows = table.getSelectedRows();
+            if (selectedRows.length > 0) {
+                selectedRows[0].delete();
+                console.log("선택된 행 삭제됨");
+            } else {
+                alert("삭제할 행을 먼저 선택해주세요.");
+            }
+        }
+
+        function resetTable() {
+            table.setData(tableData);
+            console.log("테이블 초기화됨");
+        }
+
+        // 키보드 이벤트 처리
+        document.addEventListener('keydown', function (e) {
+            // Ctrl+V 감지 (디버깅용)
+            if (e.ctrlKey && e.key === 'v') {
+                console.log("Ctrl+V 감지됨");
+            }
+        });
+    </script>
+</body>
+
+</html>
